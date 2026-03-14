@@ -1,0 +1,45 @@
+name: Bug Report
+description: Something isn't working right
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug. Screenshots are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect to radio
+        2. Select ...
+        3. Click ...
+    validations:
+      required: false
+
+  - type: input
+    id: radio
+    attributes:
+      label: Radio model & firmware
+      placeholder: "FLEX-6600 v3.4.39"
+    validations:
+      required: false
+
+  - type: input
+    id: distro
+    attributes:
+      label: Linux distro & Qt version
+      placeholder: "Arch Linux, Qt 6.8.2"
+    validations:
+      required: false
