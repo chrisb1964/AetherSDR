@@ -72,6 +72,9 @@ public:
     float micLevel() const { return m_micLevel; }
     float compLevel() const { return m_compLevel; }
 
+    // Convenience: ALC level (0–100 scale, from TX "HWALC" meter).
+    float alc() const { return m_alc; }
+
 signals:
     // Emitted when the S-meter value changes (dBm).
     void sLevelChanged(float dbm);
@@ -83,6 +86,9 @@ signals:
     // and peak values for peak-hold markers).
     void micMetersChanged(float micLevel, float compLevel,
                           float micPeak, float compPeak);
+
+    // Emitted when ALC meter changes (0–100 scale).
+    void alcChanged(float alc);
 
     // Emitted when any meter value changes (for debug/generic display).
     void meterUpdated(int index, float value);
@@ -101,6 +107,7 @@ private:
     int m_compPeakIdx{-1};   // "TX" / "COMPPEAK"
     int m_micLevelIdx{-1};   // "TX" / "MIC" (instantaneous)
     int m_compLevelIdx{-1};  // "TX" / "COMP" (instantaneous)
+    int m_alcIdx{-1};        // "TX" / "HWALC"
 
     // Cached values
     float m_sLevel{-130.0f};
@@ -110,6 +117,7 @@ private:
     float m_compPeak{0.0f};
     float m_micLevel{-50.0f};
     float m_compLevel{0.0f};
+    float m_alc{0.0f};
 };
 
 } // namespace AetherSDR

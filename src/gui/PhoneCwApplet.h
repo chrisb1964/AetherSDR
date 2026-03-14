@@ -6,22 +6,16 @@ class QPushButton;
 class QLabel;
 class QSlider;
 class QComboBox;
+class QStackedWidget;
 
 namespace AetherSDR {
 
 class HGauge;
 class TransmitModel;
 
-// P/CW applet — phone/CW microphone controls matching the SmartSDR P/CW panel.
-//
-// Layout (top to bottom):
-//  - Title bar: "P/CW"
-//  - Level (mic peak) horizontal gauge (-40 to -10 dB)
-//  - Compression horizontal gauge (-25 to 0 dB)
-//  - Mic profile dropdown
-//  - Mic source dropdown + mic level slider + +ACC button
-//  - PROC button + NOR/DX/DX+ 3-position slider + DAX button
-//  - MON button + monitor volume slider
+// P/CW applet — mode-aware panel that shows Phone controls (default) or CW
+// controls when the active slice is in CW/CWL mode.  Both sub-panels live
+// inside a QStackedWidget beneath a shared "P/CW" title bar.
 class PhoneCwApplet : public QWidget {
     Q_OBJECT
 
@@ -31,43 +25,77 @@ public:
     void setTransmitModel(TransmitModel* model);
 
 public slots:
+    // Phone meters (mic level / compression)
     void updateMeters(float micLevel, float compLevel,
                       float micPeak, float compPeak);
 
+    // CW meter (ALC 0–100)
+    void updateAlc(float alc);
+
+    // Switch between Phone and CW sub-panels based on slice mode.
+    void setMode(const QString& mode);
+
 private:
-    void buildUI();
-    void syncFromModel();
+    void buildPhonePanel();
+    void buildCwPanel();
+    void syncPhoneFromModel();
+    void syncCwFromModel();
 
     TransmitModel* m_model{nullptr};
+    QStackedWidget* m_stack{nullptr};
+    QWidget* m_phonePanel{nullptr};
+    QWidget* m_cwPanel{nullptr};
 
-    // Gauges
+    // ── Phone sub-panel widgets ──────────────────────────────────────────
+
     HGauge* m_levelGauge{nullptr};
     HGauge* m_compGauge{nullptr};
 
-    // Mic profile
     QComboBox* m_micProfileCombo{nullptr};
 
-    // Mic source + level
     QComboBox*   m_micSourceCombo{nullptr};
     QSlider*     m_micLevelSlider{nullptr};
     QLabel*      m_micLevelLabel{nullptr};
     QPushButton* m_accBtn{nullptr};
 
-    // Processor
     QPushButton* m_procBtn{nullptr};
     QSlider*     m_procSlider{nullptr};   // 3-position: 0=NOR, 1=DX, 2=DX+
     QPushButton* m_daxBtn{nullptr};
 
-    // Monitor
     QPushButton* m_monBtn{nullptr};
     QSlider*     m_monSlider{nullptr};
     QLabel*      m_monLabel{nullptr};
 
+    // ── CW sub-panel widgets ─────────────────────────────────────────────
+
+    HGauge*      m_alcGauge{nullptr};
+
+    QSlider*     m_delaySlider{nullptr};
+    QLabel*      m_delayLabel{nullptr};
+
+    QSlider*     m_speedSlider{nullptr};
+    QLabel*      m_speedLabel{nullptr};
+
+    QPushButton* m_sidetoneBtn{nullptr};
+    QSlider*     m_sidetoneSlider{nullptr};
+    QLabel*      m_sidetoneLabel{nullptr};
+
+    QSlider*     m_cwPanSlider{nullptr};
+
+    QPushButton* m_breakinBtn{nullptr};
+    QPushButton* m_iambicBtn{nullptr};
+
+    QLabel*      m_pitchLabel{nullptr};
+    QPushButton* m_pitchDown{nullptr};
+    QPushButton* m_pitchUp{nullptr};
+
+    // ── Shared state ─────────────────────────────────────────────────────
+
     bool m_updatingFromModel{false};
 
     // Client-side peak hold with slow decay for compression gauge
-    float m_compHeld{0.0f};          // current held compression value (0 = empty)
-    static constexpr float kCompDecayRate = 0.5f;  // dB per meter update toward 0
+    float m_compHeld{0.0f};
+    static constexpr float kCompDecayRate = 0.5f;
 };
 
 } // namespace AetherSDR

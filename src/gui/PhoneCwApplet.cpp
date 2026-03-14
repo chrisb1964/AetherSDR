@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QSlider>
 #include <QComboBox>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QSignalBlocker>
@@ -14,6 +15,41 @@
 #include <QStandardPaths>
 
 namespace AetherSDR {
+
+// ── Triangle button (same as RxApplet) ──────────────────────────────────────
+
+class CwTriBtn : public QPushButton {
+public:
+    enum Dir { Left, Right };
+    explicit CwTriBtn(Dir dir, QWidget* parent = nullptr)
+        : QPushButton(parent), m_dir(dir)
+    {
+        setFlat(false);
+        setFixedSize(22, 22);
+        setStyleSheet(
+            "QPushButton { background: #1a2a3a; border: 1px solid #203040; "
+            "border-radius: 3px; padding: 0; margin: 0; min-width: 0; min-height: 0; }"
+            "QPushButton:hover { background: #203040; }"
+            "QPushButton:pressed { background: #00b4d8; }");
+    }
+protected:
+    void paintEvent(QPaintEvent* ev) override {
+        QPushButton::paintEvent(ev);
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setBrush(isDown() ? QColor(0, 0, 0) : QColor(0xc8, 0xd8, 0xe8));
+        p.setPen(Qt::NoPen);
+        const int cx = width() / 2, cy = height() / 2;
+        QPolygon tri;
+        if (m_dir == Left)
+            tri << QPoint(cx - 5, cy) << QPoint(cx + 4, cy - 5) << QPoint(cx + 4, cy + 5);
+        else
+            tri << QPoint(cx + 5, cy) << QPoint(cx - 4, cy - 5) << QPoint(cx - 4, cy + 5);
+        p.drawPolygon(tri);
+    }
+private:
+    Dir m_dir;
+};
 
 // ── Shared gradient title bar (matches AppletPanel / TxApplet style) ─────────
 
@@ -52,6 +88,21 @@ static constexpr const char* kButtonBase =
     "QPushButton { background: #1a3a5a; border: 1px solid #205070; "
     "border-radius: 3px; color: #c8d8e8; font-size: 10px; font-weight: bold; }"
     "QPushButton:hover { background: #204060; }";
+
+static const QString kStepBtnStyle =
+    "QPushButton { background-color: #1a2a3a; color: #c8d8e8; "
+    "border: 1px solid #205070; border-radius: 2px; font-size: 11px; "
+    "font-weight: bold; padding: 0px; }";
+
+static constexpr const char* kLabelStyle =
+    "QLabel { color: #c8d8e8; font-size: 10px; }";
+
+static constexpr const char* kDimLabelStyle =
+    "QLabel { color: #8090a0; font-size: 10px; }";
+
+static constexpr const char* kInsetValueStyle =
+    "QLabel { font-size: 10px; background: #0a0a18; border: 1px solid #1e2e3e; "
+    "border-radius: 3px; padding: 1px 2px; color: #c8d8e8; }";
 
 // Generate a small down-arrow PNG for combo boxes (Qt stylesheets need a file).
 static QString comboArrowPath()
@@ -93,38 +144,48 @@ PhoneCwApplet::PhoneCwApplet(QWidget* parent)
 {
     hide();
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    buildUI();
-}
 
-void PhoneCwApplet::buildUI()
-{
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
 
-    // Title bar
+    // Shared title bar
     outer->addWidget(appletTitleBar("P/CW"));
 
-    // Body with margins
-    auto* body = new QWidget;
-    auto* vbox = new QVBoxLayout(body);
+    // Stacked widget holding Phone (index 0) and CW (index 1) panels
+    m_stack = new QStackedWidget;
+    buildPhonePanel();
+    buildCwPanel();
+    m_stack->addWidget(m_phonePanel);
+    m_stack->addWidget(m_cwPanel);
+    m_stack->setCurrentIndex(0);  // Phone by default
+
+    outer->addWidget(m_stack);
+}
+
+// ── Phone sub-panel (existing P/CW controls) ────────────────────────────────
+
+void PhoneCwApplet::buildPhonePanel()
+{
+    m_phonePanel = new QWidget;
+    auto* vbox = new QVBoxLayout(m_phonePanel);
     vbox->setContentsMargins(4, 2, 4, 2);
     vbox->setSpacing(2);
 
-    // ── Level gauge (mic peak, dBFS: -40 to +10) ────────────────────────────
+    // ── Level gauge (mic peak, dBFS: -40 to +10) ────────────────────────
     m_levelGauge = new HGauge(-40.0f, 10.0f, 0.0f, "Level", "dB",
         {{-40, "-40dB"}, {-30, "-30"}, {-20, "-20"}, {-10, "-10"}, {0, "0"}, {5, "+5"}, {10, "+10"}},
         nullptr, -10.0f);
     vbox->addWidget(m_levelGauge);
 
-    // ── Compression gauge (dB: -25 to 0, fills right-to-left) ────────────────
+    // ── Compression gauge (dB: -25 to 0, fills right-to-left) ───────────
     m_compGauge = new HGauge(-25.0f, 0.0f, 1.0f, "Compression", "",
         {{-25, "-25dB"}, {-20, "-20"}, {-15, "-15"}, {-10, "-10"}, {-5, "-5"}, {0, "0"}});
     m_compGauge->setReversed(true);
     vbox->addWidget(m_compGauge);
     vbox->addSpacing(4);
 
-    // ── Mic profile dropdown ─────────────────────────────────────────────────
+    // ── Mic profile dropdown ─────────────────────────────────────────────
     m_micProfileCombo = new QComboBox;
     m_micProfileCombo->setFixedHeight(22);
     m_micProfileCombo->setStyleSheet(comboStyleStr());
@@ -138,7 +199,7 @@ void PhoneCwApplet::buildUI()
     });
     vbox->addWidget(m_micProfileCombo);
 
-    // ── Mic source + level slider + +ACC ─────────────────────────────────────
+    // ── Mic source + level slider + +ACC ─────────────────────────────────
     {
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
@@ -147,7 +208,6 @@ void PhoneCwApplet::buildUI()
         m_micSourceCombo->setFixedWidth(55);
         m_micSourceCombo->setFixedHeight(22);
         m_micSourceCombo->setStyleSheet(comboStyleStr());
-        // Default options (overridden by mic list from radio if available)
         m_micSourceCombo->addItems({"MIC", "BAL", "LINE", "ACC", "PC"});
         connect(m_micSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this, [this](int) {
@@ -163,7 +223,7 @@ void PhoneCwApplet::buildUI()
         row->addWidget(m_micLevelSlider, 1);
 
         m_micLevelLabel = new QLabel("50");
-        m_micLevelLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
+        m_micLevelLabel->setStyleSheet(kLabelStyle);
         m_micLevelLabel->setFixedWidth(22);
         m_micLevelLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(m_micLevelLabel);
@@ -189,7 +249,7 @@ void PhoneCwApplet::buildUI()
         vbox->addLayout(row);
     }
 
-    // ── PROC + NOR/DX/DX+ slider + DAX ──────────────────────────────────────
+    // ── PROC + NOR/DX/DX+ slider + DAX ──────────────────────────────────
     {
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
@@ -207,7 +267,6 @@ void PhoneCwApplet::buildUI()
         procVbox->setContentsMargins(0, 0, 0, 0);
         procVbox->setSpacing(0);
 
-        // Labels row
         auto* labelsRow = new QHBoxLayout;
         labelsRow->setContentsMargins(0, 0, 0, 0);
         auto* norLbl = new QLabel("NOR");
@@ -250,7 +309,6 @@ void PhoneCwApplet::buildUI()
 
         connect(m_procSlider, &QSlider::valueChanged, this, [this](int pos) {
             if (!m_updatingFromModel && m_model) {
-                // Map 3 positions to speech_processor_level: 0=NOR, 50=DX, 100=DX+
                 static constexpr int kLevels[] = {0, 50, 100};
                 m_model->setSpeechProcessorLevel(kLevels[qBound(0, pos, 2)]);
             }
@@ -264,7 +322,7 @@ void PhoneCwApplet::buildUI()
         vbox->addLayout(row);
     }
 
-    // ── MON button + monitor volume slider ───────────────────────────────────
+    // ── MON button + monitor volume slider ───────────────────────────────
     {
         auto* row = new QHBoxLayout;
         row->setSpacing(4);
@@ -282,7 +340,7 @@ void PhoneCwApplet::buildUI()
         row->addWidget(m_monSlider, 1);
 
         m_monLabel = new QLabel("50");
-        m_monLabel->setStyleSheet("QLabel { color: #c8d8e8; font-size: 10px; }");
+        m_monLabel->setStyleSheet(kLabelStyle);
         m_monLabel->setFixedWidth(22);
         m_monLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(m_monLabel);
@@ -300,8 +358,230 @@ void PhoneCwApplet::buildUI()
 
         vbox->addLayout(row);
     }
+}
 
-    outer->addWidget(body);
+// ── CW sub-panel ─────────────────────────────────────────────────────────────
+
+void PhoneCwApplet::buildCwPanel()
+{
+    m_cwPanel = new QWidget;
+    auto* vbox = new QVBoxLayout(m_cwPanel);
+    vbox->setContentsMargins(4, 2, 4, 6);
+    vbox->setSpacing(4);
+
+    // ── ALC gauge (0–100) ────────────────────────────────────────────────
+    m_alcGauge = new HGauge(0.0f, 100.0f, 80.0f, "ALC", "",
+        {{0, "0"}, {25, "25"}, {50, "50"}, {75, "75"}, {100, "100"}});
+    vbox->addWidget(m_alcGauge);
+    vbox->addSpacing(2);
+
+    // All left-side labels/buttons share the same width so sliders align.
+    static constexpr int kLeftColW = 70;
+    static constexpr int kValueW   = 36;
+    static constexpr int kGap      = 4;   // pad between label/button and slider
+
+    // ── Delay: label + slider + inset value ─────────────────────────────
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        auto* lbl = new QLabel("Delay:");
+        lbl->setStyleSheet("QLabel { color: #8090a0; font-size: 11px; }");
+        lbl->setFixedWidth(kLeftColW);
+        row->addWidget(lbl);
+
+        row->addSpacing(kGap);
+
+        m_delaySlider = new QSlider(Qt::Horizontal);
+        m_delaySlider->setRange(0, 2000);
+        m_delaySlider->setSingleStep(10);
+        m_delaySlider->setPageStep(100);
+        m_delaySlider->setStyleSheet(kSliderStyle);
+        row->addWidget(m_delaySlider, 1);
+
+        m_delayLabel = new QLabel("500");
+        m_delayLabel->setStyleSheet(kInsetValueStyle);
+        m_delayLabel->setFixedWidth(kValueW);
+        m_delayLabel->setAlignment(Qt::AlignCenter);
+        row->addWidget(m_delayLabel);
+
+        connect(m_delaySlider, &QSlider::valueChanged, this, [this](int v) {
+            m_delayLabel->setText(QString::number(v));
+            if (!m_updatingFromModel && m_model)
+                m_model->setCwDelay(v);
+        });
+
+        vbox->addLayout(row);
+    }
+
+    // ── Speed: label + slider + inset value ─────────────────────────────
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        auto* lbl = new QLabel("Speed:");
+        lbl->setStyleSheet("QLabel { color: #8090a0; font-size: 11px; }");
+        lbl->setFixedWidth(kLeftColW);
+        row->addWidget(lbl);
+
+        row->addSpacing(kGap);
+
+        m_speedSlider = new QSlider(Qt::Horizontal);
+        m_speedSlider->setRange(5, 100);
+        m_speedSlider->setStyleSheet(kSliderStyle);
+        row->addWidget(m_speedSlider, 1);
+
+        m_speedLabel = new QLabel("20");
+        m_speedLabel->setStyleSheet(kInsetValueStyle);
+        m_speedLabel->setFixedWidth(kValueW);
+        m_speedLabel->setAlignment(Qt::AlignCenter);
+        row->addWidget(m_speedLabel);
+
+        connect(m_speedSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_speedLabel->setText(QString::number(v));
+            if (!m_updatingFromModel && m_model)
+                m_model->setCwSpeed(v);
+        });
+
+        vbox->addLayout(row);
+    }
+
+    // ── Sidetone: toggle button + slider + inset value ──────────────────
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        m_sidetoneBtn = new QPushButton("Sidetone");
+        m_sidetoneBtn->setCheckable(true);
+        m_sidetoneBtn->setFixedHeight(22);
+        m_sidetoneBtn->setFixedWidth(kLeftColW);
+        m_sidetoneBtn->setStyleSheet(QString(kButtonBase) + kGreenActive);
+        row->addWidget(m_sidetoneBtn);
+
+        row->addSpacing(kGap);
+
+        m_sidetoneSlider = new QSlider(Qt::Horizontal);
+        m_sidetoneSlider->setRange(0, 100);
+        m_sidetoneSlider->setStyleSheet(kSliderStyle);
+        row->addWidget(m_sidetoneSlider, 1);
+
+        m_sidetoneLabel = new QLabel("50");
+        m_sidetoneLabel->setStyleSheet(kInsetValueStyle);
+        m_sidetoneLabel->setFixedWidth(kValueW);
+        m_sidetoneLabel->setAlignment(Qt::AlignCenter);
+        row->addWidget(m_sidetoneLabel);
+
+        connect(m_sidetoneBtn, &QPushButton::toggled, this, [this](bool on) {
+            if (!m_updatingFromModel && m_model)
+                m_model->setCwSidetone(on);
+        });
+
+        connect(m_sidetoneSlider, &QSlider::valueChanged, this, [this](int v) {
+            m_sidetoneLabel->setText(QString::number(v));
+            if (!m_updatingFromModel && m_model)
+                m_model->setMonGainCw(v);
+        });
+
+        vbox->addLayout(row);
+    }
+
+    // ── L / R pan slider ─────────────────────────────────────────────────
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        // L/R labels sit close to the slider ends, not in the wide left column
+        auto* lLbl = new QLabel("L");
+        lLbl->setStyleSheet(kDimLabelStyle);
+        row->addWidget(lLbl);
+
+        m_cwPanSlider = new QSlider(Qt::Horizontal);
+        m_cwPanSlider->setRange(0, 100);
+        m_cwPanSlider->setValue(50);
+        m_cwPanSlider->setStyleSheet(kSliderStyle);
+        row->addWidget(m_cwPanSlider, 1);
+
+        auto* rLbl = new QLabel("R");
+        rLbl->setStyleSheet(kDimLabelStyle);
+        row->addWidget(rLbl);
+
+        // CW pan is mon_pan_cw — we'd need to add this to TransmitModel.
+        // For now, wire it if/when the field is available.
+
+        vbox->addLayout(row);
+    }
+
+    // ── Bottom row: Breakin, Iambic, Pitch stepper ──────────────────────
+    {
+        auto* row = new QHBoxLayout;
+        row->setSpacing(4);
+
+        m_breakinBtn = new QPushButton("Breakin");
+        m_breakinBtn->setCheckable(true);
+        m_breakinBtn->setFixedHeight(22);
+        m_breakinBtn->setStyleSheet(QString(kButtonBase) + kGreenActive);
+        row->addWidget(m_breakinBtn);
+
+        m_iambicBtn = new QPushButton("Iambic");
+        m_iambicBtn->setCheckable(true);
+        m_iambicBtn->setFixedHeight(22);
+        m_iambicBtn->setStyleSheet(QString(kButtonBase) + kBlueActive);
+        row->addWidget(m_iambicBtn);
+
+        row->addStretch();
+
+        // Pitch: label + < value > stepper (inset display matching RIT/XIT style)
+        auto* pitchLbl = new QLabel("Pitch:");
+        pitchLbl->setStyleSheet("QLabel { color: #8090a0; font-size: 11px; }");
+        row->addWidget(pitchLbl);
+
+        m_pitchDown = new CwTriBtn(CwTriBtn::Left);
+        row->addWidget(m_pitchDown);
+
+        m_pitchLabel = new QLabel("600");
+        m_pitchLabel->setAlignment(Qt::AlignCenter);
+        m_pitchLabel->setFixedWidth(48);
+        m_pitchLabel->setStyleSheet(
+            "QLabel { font-size: 11px; background: #0a0a18; border: 1px solid #1e2e3e; "
+            "border-radius: 3px; padding: 1px 3px; color: #c8d8e8; }");
+        row->addWidget(m_pitchLabel);
+
+        m_pitchUp = new CwTriBtn(CwTriBtn::Right);
+        row->addWidget(m_pitchUp);
+
+        connect(m_breakinBtn, &QPushButton::toggled, this, [this](bool on) {
+            if (!m_updatingFromModel && m_model)
+                m_model->setCwBreakIn(on);
+        });
+
+        connect(m_iambicBtn, &QPushButton::toggled, this, [this](bool on) {
+            if (!m_updatingFromModel && m_model)
+                m_model->setCwIambic(on);
+        });
+
+        // Pitch steps by 10 Hz (matching SmartSDR)
+        connect(m_pitchDown, &QPushButton::clicked, this, [this]() {
+            if (!m_model) return;
+            int hz = qMax(100, m_model->cwPitch() - 10);
+            m_model->setCwPitch(hz);
+        });
+        connect(m_pitchUp, &QPushButton::clicked, this, [this]() {
+            if (!m_model) return;
+            int hz = qMin(6000, m_model->cwPitch() + 10);
+            m_model->setCwPitch(hz);
+        });
+
+        vbox->addLayout(row);
+    }
+}
+
+// ── Mode switching ───────────────────────────────────────────────────────────
+
+void PhoneCwApplet::setMode(const QString& mode)
+{
+    // CWL is not a separate slice mode on fw v1.4.0.0 — only "CW" appears.
+    bool isCw = (mode == "CW");
+    m_stack->setCurrentIndex(isCw ? 1 : 0);
 }
 
 // ── Model binding ────────────────────────────────────────────────────────────
@@ -311,7 +591,9 @@ void PhoneCwApplet::setTransmitModel(TransmitModel* model)
     m_model = model;
     if (!m_model) return;
 
-    connect(m_model, &TransmitModel::micStateChanged, this, &PhoneCwApplet::syncFromModel);
+    // Phone signals
+    connect(m_model, &TransmitModel::micStateChanged,
+            this, &PhoneCwApplet::syncPhoneFromModel);
 
     connect(m_model, &TransmitModel::micProfileListChanged, this, [this]() {
         m_updatingFromModel = true;
@@ -339,47 +621,43 @@ void PhoneCwApplet::setTransmitModel(TransmitModel* model)
         m_updatingFromModel = false;
     });
 
-    syncFromModel();
+    // CW signals — phoneStateChanged covers CW field updates too
+    connect(m_model, &TransmitModel::phoneStateChanged,
+            this, &PhoneCwApplet::syncCwFromModel);
+
+    syncPhoneFromModel();
+    syncCwFromModel();
 }
 
-void PhoneCwApplet::syncFromModel()
+// ── Phone sync ───────────────────────────────────────────────────────────────
+
+void PhoneCwApplet::syncPhoneFromModel()
 {
     if (!m_model) return;
     m_updatingFromModel = true;
 
-    // Mic source combo
     {
         const QSignalBlocker blocker(m_micSourceCombo);
         int idx = m_micSourceCombo->findText(m_model->micSelection());
         if (idx >= 0) m_micSourceCombo->setCurrentIndex(idx);
     }
 
-    // Mic level
     m_micLevelSlider->setValue(m_model->micLevel());
     m_micLevelLabel->setText(QString::number(m_model->micLevel()));
-
-    // +ACC
     m_accBtn->setChecked(m_model->micAcc());
-
-    // PROC
     m_procBtn->setChecked(m_model->speechProcessorEnable());
 
-    // NOR/DX/DX+ slider — reverse map from 0-100 to 0/1/2
     {
         int level = m_model->speechProcessorLevel();
         int pos = (level <= 25) ? 0 : (level <= 75) ? 1 : 2;
         m_procSlider->setValue(pos);
     }
 
-    // DAX
     m_daxBtn->setChecked(m_model->daxOn());
-
-    // MON
     m_monBtn->setChecked(m_model->sbMonitor());
     m_monSlider->setValue(m_model->monGainSb());
     m_monLabel->setText(QString::number(m_model->monGainSb()));
 
-    // Mic profile combo
     {
         const QSignalBlocker blocker(m_micProfileCombo);
         int idx = m_micProfileCombo->findText(m_model->activeMicProfile());
@@ -389,29 +667,54 @@ void PhoneCwApplet::syncFromModel()
     m_updatingFromModel = false;
 }
 
+// ── CW sync ──────────────────────────────────────────────────────────────────
+
+void PhoneCwApplet::syncCwFromModel()
+{
+    if (!m_model) return;
+    m_updatingFromModel = true;
+
+    m_delaySlider->setValue(m_model->cwDelay());
+    m_delayLabel->setText(QString::number(m_model->cwDelay()));
+
+    m_speedSlider->setValue(m_model->cwSpeed());
+    m_speedLabel->setText(QString::number(m_model->cwSpeed()));
+
+    m_sidetoneBtn->setChecked(m_model->cwSidetone());
+    m_sidetoneSlider->setValue(m_model->monGainCw());
+    m_sidetoneLabel->setText(QString::number(m_model->monGainCw()));
+
+    m_breakinBtn->setChecked(m_model->cwBreakIn());
+    m_iambicBtn->setChecked(m_model->cwIambic());
+
+    m_pitchLabel->setText(QString::number(m_model->cwPitch()));
+
+    m_updatingFromModel = false;
+}
+
 // ── Meter updates ────────────────────────────────────────────────────────────
 
 void PhoneCwApplet::updateMeters(float micLevel, float compLevel,
                                   float micPeak, float compPeak)
 {
-    Q_UNUSED(compLevel);  // no "COMP" meter exists — only COMPPEAK
+    Q_UNUSED(compLevel);
 
     m_levelGauge->setValue(micLevel);
     m_levelGauge->setPeakValue(micPeak);
-    // During RX, COMPPEAK reads far below gauge range (e.g. -150 dBFS).
-    // Only show compression when actually active.
+
     float comp = (compPeak < -60.0f || compPeak >= 0.0f) ? 0.0f : compPeak;
 
-    // Client-side peak hold with slow decay — radio's COMPPEAK releases too fast.
-    // comp is negative (more negative = more compression), 0 = no compression.
     if (comp < m_compHeld) {
-        // More compression — snap immediately
         m_compHeld = comp;
     } else {
-        // Releasing — decay slowly toward 0
         m_compHeld = qMin(0.0f, m_compHeld + kCompDecayRate);
     }
     m_compGauge->setValue(m_compHeld);
+}
+
+void PhoneCwApplet::updateAlc(float alc)
+{
+    m_alcGauge->setValue(alc);
 }
 
 } // namespace AetherSDR

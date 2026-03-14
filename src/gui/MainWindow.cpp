@@ -136,9 +136,11 @@ MainWindow::MainWindow(QWidget* parent)
             m_appletPanel->txApplet(), &TxApplet::updateMeters);
     m_appletPanel->txApplet()->setTransmitModel(m_radioModel.transmitModel());
 
-    // ── P/CW applet: mic meters + model ──────────────────────────────────────
+    // ── P/CW applet: mic meters + ALC meter + model ────────────────────────
     connect(m_radioModel.meterModel(), &MeterModel::micMetersChanged,
             m_appletPanel->phoneCwApplet(), &PhoneCwApplet::updateMeters);
+    connect(m_radioModel.meterModel(), &MeterModel::alcChanged,
+            m_appletPanel->phoneCwApplet(), &PhoneCwApplet::updateAlc);
     m_appletPanel->phoneCwApplet()->setTransmitModel(m_radioModel.transmitModel());
 
     // ── PHNE applet: VOX + CW controls ──────────────────────────────────────
@@ -239,7 +241,9 @@ void MainWindow::buildUI()
     // Mode selector
     ctrlBox->addWidget(new QLabel("Mode:", ctrlGroup));
     m_modeCombo = new QComboBox(ctrlGroup);
-    m_modeCombo->addItems({"USB", "LSB", "CW", "CWL", "AM", "SAM", "FM", "NFM", "DIG", "DIGU", "DIGL"});
+    // Modes from radio's mode_list (fw v1.4.0.0). CWL is not a separate mode —
+    // it's CW with cwl_enabled=1 in transmit status.
+    m_modeCombo->addItems({"USB", "LSB", "CW", "AM", "SAM", "FM", "NFM", "DFM", "DIGU", "DIGL", "RTTY"});
     ctrlBox->addWidget(m_modeCombo);
 
     // Volume
@@ -409,6 +413,12 @@ void MainWindow::onSliceAdded(SliceModel* s)
         m_updatingFromModel = false;
     });
     connect(s, &SliceModel::filterChanged, m_spectrum, &SpectrumWidget::setSliceFilter);
+    connect(s, &SliceModel::modeChanged, this, [this](const QString& mode) {
+        m_updatingFromModel = true;
+        const int idx = m_modeCombo->findText(mode);
+        if (idx >= 0) m_modeCombo->setCurrentIndex(idx);
+        m_updatingFromModel = false;
+    });
 }
 
 void MainWindow::onSliceRemoved(int /*id*/) {}

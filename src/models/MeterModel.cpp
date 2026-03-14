@@ -26,6 +26,8 @@ void MeterModel::defineMeter(const MeterDef& def)
         m_micLevelIdx = def.index;
     else if (def.name == "COMP")
         m_compLevelIdx = def.index;
+    else if (def.name == "HWALC")
+        m_alcIdx = def.index;
 
     qDebug() << "MeterModel: defined meter" << def.index
              << def.source << def.sourceIndex << def.name
@@ -44,6 +46,7 @@ void MeterModel::removeMeter(int index)
     if (index == m_compPeakIdx)  m_compPeakIdx = -1;
     if (index == m_micLevelIdx)  m_micLevelIdx = -1;
     if (index == m_compLevelIdx) m_compLevelIdx = -1;
+    if (index == m_alcIdx)       m_alcIdx = -1;
 }
 
 float MeterModel::convertRaw(const MeterDef& def, qint16 raw) const
@@ -65,6 +68,7 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
     bool sChanged = false;
     bool txChanged = false;
     bool micChanged = false;
+    bool alcChanged = false;
 
     for (int i = 0; i < n; ++i) {
         const int idx = static_cast<int>(ids[i]);
@@ -95,6 +99,9 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         } else if (idx == m_compLevelIdx) {
             m_compLevel = v;
             micChanged = true;
+        } else if (idx == m_alcIdx) {
+            m_alc = v;
+            alcChanged = true;
         }
 
         emit meterUpdated(idx, v);
@@ -106,6 +113,8 @@ void MeterModel::updateValues(const QVector<quint16>& ids, const QVector<qint16>
         emit txMetersChanged(m_fwdPower, m_swr);
     if (micChanged)
         emit micMetersChanged(m_micLevel, m_compLevel, m_micPeak, m_compPeak);
+    if (alcChanged)
+        emit this->alcChanged(m_alc);
 }
 
 const MeterDef* MeterModel::meterDef(int index) const

@@ -6,6 +6,7 @@
 #include "PhoneCwApplet.h"
 #include "PhoneApplet.h"
 #include "EqApplet.h"
+#include "models/SliceModel.h"
 
 #include <QPushButton>
 #include <QScrollArea>
@@ -157,6 +158,13 @@ void AppletPanel::setTunerVisible(bool visible)
 void AppletPanel::setSlice(SliceModel* slice)
 {
     m_rxApplet->setSlice(slice);
+
+    // Route mode changes to P/CW applet for Phone↔CW switching
+    if (slice) {
+        connect(slice, &SliceModel::modeChanged,
+                m_phoneCwApplet, &PhoneCwApplet::setMode);
+        m_phoneCwApplet->setMode(slice->mode());
+    }
 }
 
 void AppletPanel::setAntennaList(const QStringList& ants)
