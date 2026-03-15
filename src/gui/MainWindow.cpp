@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "ConnectionPanel.h"
+#include "PanadapterApplet.h"
 #include "SpectrumWidget.h"
 #include "AppletPanel.h"
 #include "RxApplet.h"
@@ -85,16 +86,16 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── Panadapter stream → spectrum widget ───────────────────────────────
     connect(m_radioModel.panStream(), &PanadapterStream::spectrumReady,
-            m_spectrum, &SpectrumWidget::updateSpectrum);
+            spectrum(), &SpectrumWidget::updateSpectrum);
     connect(m_radioModel.panStream(), &PanadapterStream::waterfallRowReady,
-            m_spectrum, &SpectrumWidget::updateWaterfallRow);
+            spectrum(), &SpectrumWidget::updateWaterfallRow);
     connect(&m_radioModel, &RadioModel::panadapterInfoChanged,
-            m_spectrum, &SpectrumWidget::setFrequencyRange);
+            spectrum(), &SpectrumWidget::setFrequencyRange);
     connect(&m_radioModel, &RadioModel::panadapterLevelChanged,
-            m_spectrum, &SpectrumWidget::setDbmRange);
+            spectrum(), &SpectrumWidget::setDbmRange);
 
     // ── Click-to-tune on the spectrum ─────────────────────────────────────
-    connect(m_spectrum, &SpectrumWidget::frequencyClicked,
+    connect(spectrum(), &SpectrumWidget::frequencyClicked,
             this, &MainWindow::onFrequencyChanged);
 
     // ── Panadapter stream → audio engine ──────────────────────────────────
@@ -111,8 +112,8 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ── Tuning step size → spectrum widget ─────────────────────────────────
     connect(m_appletPanel->rxApplet(), &RxApplet::stepSizeChanged,
-            m_spectrum, &SpectrumWidget::setStepSize);
-    m_spectrum->setStepSize(100);
+            spectrum(), &SpectrumWidget::setStepSize);
+    spectrum()->setStepSize(100);
 
     // ── Antenna list from radio → applet panel ─────────────────────────────
     connect(&m_radioModel, &RadioModel::antListChanged,
@@ -218,9 +219,9 @@ void MainWindow::buildUI()
     m_connPanel->setFixedWidth(260);
     splitter->addWidget(m_connPanel);
 
-    // Centre — spectrum (full height, no controls strip)
-    m_spectrum = new SpectrumWidget(splitter);
-    splitter->addWidget(m_spectrum);
+    // Centre — panadapter applet (title bar + FFT spectrum + waterfall)
+    m_panApplet = new PanadapterApplet(splitter);
+    splitter->addWidget(m_panApplet);
     splitter->setStretchFactor(1, 1);
 
     // Right — applet panel (includes S-Meter)
@@ -336,18 +337,19 @@ void MainWindow::onSliceAdded(SliceModel* s)
     qDebug() << "MainWindow: slice added" << s->sliceId();
     // Update controls to reflect the first (active) slice
     if (m_radioModel.slices().size() == 1) {
-        m_spectrum->setSliceFrequency(s->frequency());
-        m_spectrum->setSliceFilter(s->filterLow(), s->filterHigh());
+        spectrum()->setSliceFrequency(s->frequency());
+        spectrum()->setSliceFilter(s->filterLow(), s->filterHigh());
+        m_panApplet->setSliceId(s->sliceId());
         m_appletPanel->setSlice(s);
     }
 
     // Forward slice frequency/mode changes → spectrum
     connect(s, &SliceModel::frequencyChanged, this, [this](double mhz){
         m_updatingFromModel = true;
-        m_spectrum->setSliceFrequency(mhz);
+        spectrum()->setSliceFrequency(mhz);
         m_updatingFromModel = false;
     });
-    connect(s, &SliceModel::filterChanged, m_spectrum, &SpectrumWidget::setSliceFilter);
+    connect(s, &SliceModel::filterChanged, spectrum(), &SpectrumWidget::setSliceFilter);
 }
 
 void MainWindow::onSliceRemoved(int /*id*/) {}
@@ -358,6 +360,11 @@ SliceModel* MainWindow::activeSlice() const
     return slices.isEmpty() ? nullptr : slices.first();
 }
 
+SpectrumWidget* MainWindow::spectrum() const
+{
+    return m_panApplet->spectrumWidget();
+}
+
 // ─── GUI control handlers ─────────────────────────────────────────────────────
 
 void MainWindow::onFrequencyChanged(double mhz)
@@ -365,12 +372,12 @@ void MainWindow::onFrequencyChanged(double mhz)
     // If the slice is locked, snap spectrum back to the current freq.
     if (auto* s = activeSlice(); s && s->isLocked()) {
         m_updatingFromModel = true;
-        m_spectrum->setSliceFrequency(s->frequency());
+        spectrum()->setSliceFrequency(s->frequency());
         m_updatingFromModel = false;
         return;
     }
 
-    m_spectrum->setSliceFrequency(mhz);
+    spectrum()->setSliceFrequency(mhz);
     if (!m_updatingFromModel) {
         if (auto* s = activeSlice())
             s->setFrequency(mhz);

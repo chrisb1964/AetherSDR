@@ -11,7 +11,7 @@ AetherSDR is free and open-source software licensed under the GNU General Public
 A Linux-native SmartSDR-compatible client for FlexRadio Systems transceivers,
 built with **Qt6** and **C++20**.
 
-Current version: **0.1.9**
+Current version: **0.1.10**
 
 ![AetherSDR Screenshot](docs/screenshot-v1.png)
 
@@ -26,15 +26,15 @@ Current version: **0.1.9**
 | SmartSDR protocol parser (V/H/R/S/M) | ✅ |
 | Multi-word status object parsing (`slice 0`, `display pan 0x...`) | ✅ |
 | Slice model (frequency, mode, filter) | ✅ |
-| Frequency dial — click top/bottom half to tune up/down | ✅ |
-| Frequency dial — scroll wheel tuning | ✅ |
-| Frequency dial — direct keyboard entry (double-click) | ✅ |
+| Spectrum — frequency scale bar between FFT and waterfall | ✅ |
 | GUI↔radio frequency sync (no feedback loop) | ✅ |
 | Mode selector (USB/LSB/CW/AM/FM/DIG…) | ✅ |
 | Panadapter VITA-49 UDP stream receiver | ✅ |
-| Panadapter spectrum widget (FFT bins) | ✅ |
-| Waterfall display (native VITA-49 tiles, PCC 0x8004) | ✅ |
+| Panadapter spectrum widget (FFT bins, pre-scaled Y pixel conversion) | ✅ |
+| Waterfall display (FFT-derived, full-bandwidth colour-mapped) | ✅ |
+| PanadapterApplet container (title bar, multi-slice ready) | ✅ |
 | Panadapter dBm range auto-calibrated from radio | ✅ |
+| Auto-connect to last used radio on launch | ✅ |
 | Audio RX via VITA-49 PCC routing + Qt Multimedia | ✅ |
 | RX applet — antenna select (RX/TX), filter presets, AGC mode+threshold | ✅ |
 | RX applet — AF gain, audio pan (L/R balance), squelch | ✅ |
@@ -55,7 +55,10 @@ Current version: **0.1.9**
 | Spectrum — scroll-wheel tunes by step size | ✅ |
 | AppletPanel — toggle-button row (ANLG, RX, TX, PHNE, P/CW, EQ) | ✅ |
 | VITA-49 meter decode (PCC 0x8002) + MeterModel registry | ✅ |
-| Analog S-Meter gauge (ANLG applet) with peak hold | ✅ |
+| ANLG applet — dual-arc S-Meter gauge (RX outer, TX inner) with peak hold | ✅ |
+| ANLG applet — TX/RX Select dropdowns switch needle source | ✅ |
+| ANLG applet — RX: S-Meter / S-Meter Peak modes | ✅ |
+| ANLG applet — TX: Power / SWR / Level / Compression with mode-specific scales | ✅ |
 | Tuner applet (4o3a TGXL) — Fwd Power/SWR gauges, relay bars, TUNE/OPERATE | ✅ |
 | Tuner auto-detect — TUNE button hidden when no TGXL connected | ✅ |
 | Fwd Power gauge auto-scales for barefoot (200 W) vs PGXL (2000 W) | ✅ |
@@ -104,9 +107,9 @@ src/
 │   └── EqualizerModel.h/.cpp   # 8-band EQ state (TX + RX)
 └── gui/
     ├── MainWindow.h/.cpp        # Main application window
-    ├── FrequencyDial.h/.cpp     # Custom 9-digit frequency widget
     ├── ConnectionPanel.h/.cpp   # Radio list + connect/disconnect
-    ├── SpectrumWidget.h/.cpp    # Panadapter display (FFT bins)
+    ├── PanadapterApplet.h/.cpp  # Panadapter container (title bar + spectrum)
+    ├── SpectrumWidget.h/.cpp    # FFT spectrum + waterfall display
     ├── AppletPanel.h/.cpp       # Toggle-button applet container
     ├── SMeterWidget.h/.cpp      # Analog S-Meter gauge
     ├── RxApplet.h/.cpp          # Full RX controls applet
@@ -222,9 +225,12 @@ TCP connect to radio:4992
 - **`display panafall create`** returns `0x50000016` on this firmware — use
   `panadapter create` instead.
 - **Slice frequency** is reported as `RF_frequency` (not `freq`) in status messages.
-- **Panadapter bins** are **unsigned uint16**, linearly mapped:
-  `dbm = min_dbm + (sample / 65535.0) × (max_dbm - min_dbm)`.
-  The `min_dbm` / `max_dbm` values are broadcast in the `display pan` status message.
+- **Panadapter bins** are **unsigned uint16** pre-scaled Y pixel coordinates:
+  `0 = max_dbm` (strongest), `ypixels-1 = min_dbm` (weakest).
+  Conversion: `dBm = max_dbm - (sample / (ypixels - 1)) × (max_dbm - min_dbm)`.
+  The `min_dbm` / `max_dbm` values come from the `display pan` status message.
+  The `xpixels` command (no underscore) sets FFT bin count; `ypixels` sets Y range.
+  Both must be set explicitly or bins will be all zeros.
 - **VITA-49 packet type**: all FlexRadio streams (panadapter, audio, meters, waterfall)
   use `ExtDataWithStream` (type 3, top nibble `0x3`). Audio is **not** `IFDataWithStream`.
   Streams are discriminated by **PacketClassCode** (lower 16 bits of VITA-49 word 3):
@@ -261,6 +267,35 @@ model-driven dial updates back to the radio.
 ---
 
 ## Changelog
+
+### v0.1.10
+- FFT spectrum and waterfall rendering fixed: discovered that radio sends
+  pre-scaled Y pixel coordinates (0 = max_dbm, ypixels-1 = min_dbm), not
+  raw 0–65535 values; corrected bin-to-dBm conversion formula
+- Panadapter xpixels command fixed: uses `xpixels` (no underscore) instead of
+  `x_pixels`; now sends xpixels=1024 ypixels=700 for full-resolution FFT
+- Waterfall switched to FFT-derived rows (native VITA-49 tiles have frequency
+  metadata that doesn't match panadapter display range on fw v1.4.0.0)
+- Frequency scale bar repositioned from bottom to between FFT and waterfall
+- PanadapterApplet: new container wrapping SpectrumWidget with a title bar
+  ("Slice A/B/C/D") and placeholder min/max/close buttons, preparing for
+  future multi-slice vertical stacking
+- ANLG applet: dual-arc gauge (outer RX S-meter, inner TX power/SWR/level/comp)
+  with TX/RX Select dropdowns that switch the needle source
+- ANLG applet: S-Meter Peak mode tracks peak-held value; S-Meter mode tracks
+  instantaneous; needle auto-switches between RX and TX on transmit
+- ANLG applet: TX inner arc scales change based on dropdown (Power 0–120W,
+  SWR 1–3, Level -40 to +5, Compression -25 to 0)
+- Removed bottom controls strip (FrequencyDial, mode selector, volume, mute,
+  TX button) — all functions now in sidebar applets
+- Deleted FrequencyDial widget (no longer used)
+- PHNE and EQ applets visible by default
+- Auto-connect to last used radio on launch (saves serial to QSettings)
+- Compression clamp tightened to -30 dB in ANLG and P/CW applets
+- Added GPLv3 license, CONTRIBUTING.md, SECURITY.md, issue templates
+- Added CI/CD (GitHub Actions), CodeQL security scanning, Dependabot
+- Added repository description, README badges, GitHub Discussions
+- Branch protection: CI required for community PRs, admins can bypass
 
 ### v0.1.9
 - RX applet major restyle: two-column compact layout matching SmartSDR appearance

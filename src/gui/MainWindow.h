@@ -12,6 +12,7 @@ namespace AetherSDR {
 
 class ConnectionPanel;
 class SpectrumWidget;
+class PanadapterApplet;
 class AppletPanel;
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -38,6 +39,7 @@ private:
     void buildMenuBar();
     void applyDarkTheme();
     SliceModel* activeSlice() const;
+    SpectrumWidget* spectrum() const;
 
     // Core objects
     RadioDiscovery m_discovery;
@@ -48,7 +50,7 @@ private:
     ConnectionPanel* m_connPanel{nullptr};
 
     // GUI — main area
-    SpectrumWidget*  m_spectrum{nullptr};
+    PanadapterApplet* m_panApplet{nullptr};
 
     // GUI — right applet panel
     AppletPanel*     m_appletPanel{nullptr};
