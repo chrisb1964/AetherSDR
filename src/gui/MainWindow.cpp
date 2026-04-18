@@ -42,6 +42,7 @@
 #include "ShortcutDialog.h"
 #include "MultiFlexDialog.h"
 #include "HelpDialog.h"
+#include "HelpSearchDialog.h"
 #include "WhatsNewDialog.h"
 #include "models/SliceModel.h"
 #include "models/MeterModel.h"
@@ -3336,6 +3337,16 @@ void MainWindow::buildMenuBar()
     }
 
     auto* helpMenu = menuBar()->addMenu("&Help");
+    auto* searchHelpAction = helpMenu->addAction("Search Help...", this, [this]() {
+        auto* dlg = new HelpSearchDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setModal(false);
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
+    });
+    searchHelpAction->setShortcut(QKeySequence(Qt::Key_F1));
+    helpMenu->addSeparator();
     helpMenu->addAction("Getting Started...", this, [this]() {
         auto* dlg = new HelpDialog("Getting Started", ":/help/getting-started.md", this);
         dlg->setAttribute(Qt::WA_DeleteOnClose);

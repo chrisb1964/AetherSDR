@@ -515,6 +515,7 @@ set(GUI_SOURCES
     src/gui/ShortcutDialog.cpp
     src/gui/MultiFlexDialog.cpp
     src/gui/HelpDialog.cpp
+    src/gui/HelpSearchDialog.cpp
     src/gui/WhatsNewDialog.cpp
 )
 
