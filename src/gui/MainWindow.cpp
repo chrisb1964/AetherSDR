@@ -6123,9 +6123,11 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         qDebug() << "MainWindow: switching to band" << bandName
                  << "freq:" << freqMhz << "mode:" << mode;
 
-        // Radio-authoritative band change: the radio manages its own band
-        // stack (frequency, mode, filters, pan center, bandwidth, antennas).
-        // One command handles everything.
+        // Save the departing band's state so we can restore it later (#1662).
+        const QString oldBand = m_bandSettings.currentBand();
+        if (!oldBand.isEmpty() && oldBand != bandName)
+            m_bandSettings.saveBandState(oldBand, captureCurrentBandState());
+
         m_bandSettings.setCurrentBand(bandName);
 
         // Translate the UI band label to the radio's band-stack key. Mapping
@@ -6175,6 +6177,16 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         } else {
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+
+            // Restore previously saved client-side state for the target band
+            // after the radio settles into the new band (#1662).
+            if (m_bandSettings.hasSavedState(bandName)) {
+                QTimer::singleShot(250, this, [this, bandName]() {
+                    auto snap = m_bandSettings.loadBandState(bandName);
+                    if (snap.isValid())
+                        restoreBandState(snap);
+                });
+            }
         }
     });
 
