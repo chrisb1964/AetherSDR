@@ -541,6 +541,10 @@ void AudioEngine::feedAudioData(const QByteArray& pcm)
             tapClientEqRxStereo(
                 reinterpret_cast<const float*>(eqSource->constData()),
                 tapFrames);
+            // Audio scope RX tap (#1768) — same post-EQ signal, larger ring.
+            tapScopeRxStereo(
+                reinterpret_cast<const float*>(eqSource->constData()),
+                tapFrames);
         }
 
         const QByteArray& resampled = m_resampleTo48k ? resampleStereo(*eqSource) : *eqSource;
@@ -780,6 +784,82 @@ bool AudioEngine::copyRecentClientEqTxSamples(float* out, int count) const
     for (int i = 0; i < count; ++i) {
         const int idx = (w - count + i + kClientEqTapSize) & (kClientEqTapSize - 1);
         out[i] = m_clientEqTapTx[idx];
+    }
+    return true;
+}
+
+// ── Audio scope tap (#1768) ─────────────────────────────────────────
+
+void AudioEngine::tapScopeRxStereo(const float* stereoInterleaved, int frames)
+{
+    if (frames <= 0 || !m_scopeActive.load(std::memory_order_relaxed)) return;
+    std::unique_lock<std::mutex> lk(m_scopeTapMutex, std::try_to_lock);
+    if (!lk.owns_lock()) return;
+    int w = m_scopeTapRxWrite;
+    for (int i = 0; i < frames; ++i) {
+        const float mono = 0.5f * (stereoInterleaved[i * 2]
+                                 + stereoInterleaved[i * 2 + 1]);
+        m_scopeTapRx[w] = mono;
+        w = (w + 1) & (kScopeTapSize - 1);
+    }
+    m_scopeTapRxWrite = w;
+}
+
+void AudioEngine::tapScopeTxInt16(const int16_t* int16stereo, int frames)
+{
+    if (frames <= 0 || !m_scopeActive.load(std::memory_order_relaxed)) return;
+    std::unique_lock<std::mutex> lk(m_scopeTapMutex, std::try_to_lock);
+    if (!lk.owns_lock()) return;
+    int w = m_scopeTapTxWrite;
+    for (int i = 0; i < frames; ++i) {
+        const float l = int16stereo[i * 2]     / 32768.0f;
+        const float r = int16stereo[i * 2 + 1] / 32768.0f;
+        m_scopeTapTx[w] = 0.5f * (l + r);
+        w = (w + 1) & (kScopeTapSize - 1);
+    }
+    m_scopeTapTxWrite = w;
+}
+
+void AudioEngine::tapScopeTxFloat32(const float* f32, int samples, int channels)
+{
+    if (samples <= 0 || channels < 1 || channels > 2
+        || !m_scopeActive.load(std::memory_order_relaxed)) return;
+    std::unique_lock<std::mutex> lk(m_scopeTapMutex, std::try_to_lock);
+    if (!lk.owns_lock()) return;
+    int w = m_scopeTapTxWrite;
+    const int frames = samples / channels;
+    for (int i = 0; i < frames; ++i) {
+        float mono;
+        if (channels == 2)
+            mono = 0.5f * (f32[i * 2] + f32[i * 2 + 1]);
+        else
+            mono = f32[i];
+        m_scopeTapTx[w] = mono;
+        w = (w + 1) & (kScopeTapSize - 1);
+    }
+    m_scopeTapTxWrite = w;
+}
+
+bool AudioEngine::copyRecentScopeRxSamples(float* out, int count) const
+{
+    if (!out || count <= 0 || count > kScopeTapSize) return false;
+    std::lock_guard<std::mutex> lk(m_scopeTapMutex);
+    int w = m_scopeTapRxWrite;
+    for (int i = 0; i < count; ++i) {
+        const int idx = (w - count + i + kScopeTapSize) & (kScopeTapSize - 1);
+        out[i] = m_scopeTapRx[idx];
+    }
+    return true;
+}
+
+bool AudioEngine::copyRecentScopeTxSamples(float* out, int count) const
+{
+    if (!out || count <= 0 || count > kScopeTapSize) return false;
+    std::lock_guard<std::mutex> lk(m_scopeTapMutex);
+    int w = m_scopeTapTxWrite;
+    for (int i = 0; i < count; ++i) {
+        const int idx = (w - count + i + kScopeTapSize) & (kScopeTapSize - 1);
+        out[i] = m_scopeTapTx[idx];
     }
     return true;
 }
@@ -2309,6 +2389,13 @@ void AudioEngine::onTxAudioReady()
     // selectable via setTxChainOrder().
     applyClientTxDspInt16(data);
 
+    // Audio scope TX tap (#1768) — post-DSP chain, pre-gain/Opus.
+    {
+        const int txFrames = data.size() / (2 * static_cast<int>(sizeof(int16_t)));
+        if (txFrames > 0)
+            tapScopeTxInt16(reinterpret_cast<const int16_t*>(data.constData()), txFrames);
+    }
+
     // ── PUDU monitor tap ─────────────────────────────────────────
     // Feeds the post-DSP int16 bytes into the TX monitor if one is
     // registered.  Lock-free atomic pointer load; the monitor's
@@ -2657,6 +2744,14 @@ void AudioEngine::feedDaxTxAudio(const QByteArray& inPcm)
             m_pcMicSumSq = 0.0;
             m_pcMicSampleCount = 0;
         }
+    }
+
+    // Audio scope TX tap for DAX path (#1768)
+    {
+        const auto* src = reinterpret_cast<const float*>(float32pcm.constData());
+        const int ns = float32pcm.size() / static_cast<int>(sizeof(float));
+        // float32pcm is stereo interleaved
+        tapScopeTxFloat32(src, ns, 2);
     }
 
     if (!m_daxTxUseRadioRoute) {

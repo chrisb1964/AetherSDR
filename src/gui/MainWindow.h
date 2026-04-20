@@ -313,6 +313,7 @@ private:
     class ClientTubeEditor* m_clientTubeEditor{nullptr}; // lazy — created on first Edit… click
     class ClientPuduEditor* m_clientPuduEditor{nullptr}; // lazy — created on first Edit… click
     class ClientReverbEditor* m_clientReverbEditor{nullptr}; // lazy — created on first Edit… click
+    class AudioScopeWindow* m_audioScopeWindow{nullptr}; // lazy — created on first open (#1768)
 
     // Applet-panel pop-out support (#1713 Phase 6).  When floating,
     // the panel lives inside m_appletPanelFloatWindow and its splitter

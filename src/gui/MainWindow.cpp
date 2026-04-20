@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "AudioScopeWindow.h"
 #ifdef HAVE_MQTT
 #include "MqttApplet.h"
 #endif
@@ -4002,6 +4003,15 @@ void MainWindow::buildMenuBar()
     auto* resetOrderAct = viewMenu->addAction("Reset Applet Order");
     connect(resetOrderAct, &QAction::triggered, this, [this] {
         m_appletPanel->resetOrder();
+    });
+
+    viewMenu->addSeparator();
+    viewMenu->addAction("Audio Scope...", this, [this]() {
+        if (!m_audioScopeWindow)
+            m_audioScopeWindow = new AudioScopeWindow(m_audio, this);
+        m_audioScopeWindow->show();
+        m_audioScopeWindow->raise();
+        m_audioScopeWindow->activateWindow();
     });
 
     viewMenu->addSeparator();

@@ -269,6 +269,14 @@ public:
     bool copyRecentClientEqRxSamples(float* out, int count) const;
     bool copyRecentClientEqTxSamples(float* out, int count) const;
 
+    // Audio scope tap (#1768).  Larger ring buffer (4096 samples ≈ 170ms
+    // at 24 kHz) supports time-bases up to 100 ms/div × 5 div = 500 ms.
+    // Tap is only written when the scope window is open (m_scopeActive).
+    static constexpr int kScopeTapSize = 4096;
+    void setScopeActive(bool on) { m_scopeActive.store(on); }
+    bool copyRecentScopeRxSamples(float* out, int count) const;
+    bool copyRecentScopeTxSamples(float* out, int count) const;
+
     // Load/save all EQ state (enable flag, active band count, per-band
     // params) via AppSettings. `path` is "Rx" or "Tx" — used as the key
     // prefix. Call loadClientEqSettings() once at startup (before the
@@ -488,6 +496,18 @@ private:
     void tapClientEqRxStereo(const float* stereoInterleaved, int frames);
     void tapClientEqTxInt16(const int16_t* int16stereo, int frames);
     void tapClientEqTxFloat32(const float* f32, int samples, int channels);
+
+    // Audio scope ring buffers (#1768) — separate from the EQ tap so the
+    // scope can use a larger window.  Written only when m_scopeActive.
+    std::atomic<bool>  m_scopeActive{false};
+    mutable std::mutex m_scopeTapMutex;
+    float              m_scopeTapRx[kScopeTapSize]{};
+    float              m_scopeTapTx[kScopeTapSize]{};
+    int                m_scopeTapRxWrite{0};
+    int                m_scopeTapTxWrite{0};
+    void tapScopeRxStereo(const float* stereoInterleaved, int frames);
+    void tapScopeTxInt16(const int16_t* int16stereo, int frames);
+    void tapScopeTxFloat32(const float* f32, int samples, int channels);
 
     // Pre-allocated NR2 work buffers (avoid per-call heap allocation)
     std::vector<float> m_nr2Mono;
