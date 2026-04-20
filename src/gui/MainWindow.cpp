@@ -345,6 +345,9 @@ MainWindow::MainWindow(QWidget* parent)
     m_bandPlanMgr = new BandPlanManager(this);
     m_bandPlanMgr->loadPlans();
 
+    // Load per-band antenna/state preferences from disk (#1758)
+    m_bandSettings.loadFromFile();
+
     buildMenuBar();
     buildUI();
     registerShortcutActions();
@@ -2790,6 +2793,12 @@ void MainWindow::closeEvent(QCloseEvent* event)
     // DEXP saved on-change in PhoneApplet — do NOT overwrite here, because
     // the radio may have reset DEXP to off (model reflects radio state, not
     // the user's preference).
+
+    // Save current band's antenna/state so it persists across sessions (#1758)
+    if (!m_bandSettings.currentBand().isEmpty()) {
+        m_bandSettings.saveBandState(m_bandSettings.currentBand(), captureCurrentBandState());
+        m_bandSettings.saveToFile();
+    }
 
     s.save();
 
@@ -6631,9 +6640,14 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         qDebug() << "MainWindow: switching to band" << bandName
                  << "freq:" << freqMhz << "mode:" << mode;
 
-        // Radio-authoritative band change: the radio manages its own band
-        // stack (frequency, mode, filters, pan center, bandwidth, antennas).
-        // One command handles everything.
+        // Save current band's antenna state before switching (#1758).
+        const QString prevBand = m_bandSettings.currentBand();
+        if (!prevBand.isEmpty()) {
+            BandSnapshot prevSnap = captureCurrentBandState();
+            m_bandSettings.saveBandState(prevBand, prevSnap);
+            m_bandSettings.saveToFile();
+        }
+
         m_bandSettings.setCurrentBand(bandName);
 
         // Translate the UI band label to the radio's band-stack key. Mapping
@@ -6683,6 +6697,20 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         } else {
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+        }
+
+        // Restore saved antenna for the new band after the radio finishes
+        // processing the band-stack command (#1758).
+        if (m_bandSettings.hasSavedState(bandName)) {
+            const BandSnapshot saved = m_bandSettings.loadBandState(bandName);
+            QTimer::singleShot(250, this, [this, saved]() {
+                if (auto* s = activeSlice()) {
+                    if (!saved.rxAntenna.isEmpty() && s->rxAntenna() != saved.rxAntenna)
+                        s->setRxAntenna(saved.rxAntenna);
+                    if (!saved.txAntenna.isEmpty() && s->txAntenna() != saved.txAntenna)
+                        s->setTxAntenna(saved.txAntenna);
+                }
+            });
         }
     });
 
@@ -8104,6 +8132,7 @@ BandSnapshot MainWindow::captureCurrentBandState() const
         snap.frequencyMhz  = s->frequency();
         snap.mode          = s->mode();
         snap.rxAntenna     = s->rxAntenna();
+        snap.txAntenna     = s->txAntenna();
         snap.filterLow     = s->filterLow();
         snap.filterHigh    = s->filterHigh();
         snap.agcMode       = s->agcMode();
@@ -8128,6 +8157,8 @@ void MainWindow::restoreBandState(const BandSnapshot& snap)
         s->tuneAndRecenter(snap.frequencyMhz);
         if (!snap.rxAntenna.isEmpty())
             s->setRxAntenna(snap.rxAntenna);
+        if (!snap.txAntenna.isEmpty())
+            s->setTxAntenna(snap.txAntenna);
         s->setFilterWidth(snap.filterLow, snap.filterHigh);
         if (!snap.agcMode.isEmpty())
             s->setAgcMode(snap.agcMode);

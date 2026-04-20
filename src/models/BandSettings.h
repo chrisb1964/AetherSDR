@@ -14,6 +14,7 @@ struct BandSnapshot {
     double  frequencyMhz{0.0};
     QString mode;
     QString rxAntenna;
+    QString txAntenna;
     int     filterLow{0};
     int     filterHigh{0};
     QString agcMode;
