@@ -282,13 +282,21 @@ TitleBar::TitleBar(QWidget* parent)
 void TitleBar::setMenuBar(QMenuBar* mb)
 {
     if (!mb) return;
+#ifndef Q_OS_MAC
+    // Force Qt-drawn menu bar on Windows/Linux so it stays embedded in the
+    // title bar row instead of rendering as a separate native menu strip.
+    // This is the key to merging the menu and title bars into one line (#1824).
+    mb->setNativeMenuBar(false);
+    mb->setFixedHeight(28);
+#endif
     mb->setStyleSheet(
-        "QMenuBar { background: transparent; color: #8aa8c0; font-size: 12px; }"
+        "QMenuBar { background: transparent; color: #8aa8c0; font-size: 12px;"
+        " border: none; margin: 0; padding: 0; }"
         "QMenuBar::item { padding: 4px 8px; }"
         "QMenuBar::item:selected { background: #203040; color: #ffffff; }"
         "QMenu { background: #0f0f1a; color: #c8d8e8; border: 1px solid #304050; }"
         "QMenu::item:selected { background: #0070c0; }");
-    mb->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
+    mb->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     m_menuBar = mb;
     // Insert at position 0 (before the first stretch)
     m_hbox->insertWidget(0, mb);
