@@ -4148,6 +4148,16 @@ void MainWindow::buildMenuBar()
         AppSettings::instance().save();
     });
 
+    // (#1800) Preserve mode when switching bands via band buttons
+    auto* preserveModeAct = viewMenu->addAction("Preserve Mode on Band Change");
+    preserveModeAct->setCheckable(true);
+    preserveModeAct->setChecked(
+        AppSettings::instance().value("PreserveModeOnBandChange", "True").toString() == "True");
+    connect(preserveModeAct, &QAction::toggled, this, [](bool on) {
+        AppSettings::instance().setValue("PreserveModeOnBandChange", on ? "True" : "False");
+        AppSettings::instance().save();
+    });
+
     // UI Scale submenu — sets QT_SCALE_FACTOR, applies on restart
     auto* scaleMenu = viewMenu->addMenu("UI Scale");
     int savedScale = AppSettings::instance().value("UiScalePercent", "100").toInt();
@@ -6941,8 +6951,39 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
                 s->tuneAndRecenter(freqMhz);
             }
         } else {
+            // (#1800) Preserve mode on band change: the radio's band stack
+            // recalls whatever mode was last used on that band (often SSB),
+            // which is disruptive for CW operators. Save the current mode
+            // and restore it after the radio applies its band-stack defaults.
+            SliceModel* sliceOnPan = nullptr;
+            if (AppSettings::instance().value("PreserveModeOnBandChange", "True").toString() == "True") {
+                for (auto* sl : m_radioModel.slices()) {
+                    if (sl->panId() == applet->panId()) { sliceOnPan = sl; break; }
+                }
+                if (!sliceOnPan) sliceOnPan = activeSlice();
+            }
+
+            QString savedMode;
+            if (sliceOnPan)
+                savedMode = sliceOnPan->mode();
+
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+
+            // After the radio applies band-stack defaults (async), restore
+            // the previous mode via a one-shot connection.
+            if (sliceOnPan && !savedMode.isEmpty()) {
+                auto conn = std::make_shared<QMetaObject::Connection>();
+                *conn = connect(sliceOnPan, &SliceModel::modeChanged,
+                                this, [this, conn, sliceOnPan, savedMode](const QString& newMode) {
+                    disconnect(*conn);
+                    if (newMode != savedMode) {
+                        qDebug() << "  ↳ (#1800) restoring mode" << savedMode
+                                 << "after band-stack set it to" << newMode;
+                        sliceOnPan->setMode(savedMode);
+                    }
+                });
+            }
         }
     });
 
