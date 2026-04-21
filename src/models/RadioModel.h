@@ -590,10 +590,15 @@ private:
     enum class NetState { Off, Excellent, VeryGood, Good, Fair, Poor };
     static constexpr int LAN_PING_FAIR_MS = 50;
     static constexpr int LAN_PING_POOR_MS = 100;
+    static constexpr int WAN_PING_FAIR_MS = 150;
+    static constexpr int WAN_PING_POOR_MS = 300;
+    static constexpr int RECOVERY_TICKS   = 3;    // ticks of good conditions to recover one tier
+    static constexpr double PING_EWMA_ALPHA = 0.3; // smoothing factor for RTT EWMA
 
     QTimer        m_pingTimer;           // 1-second interval
     // RTT now measured by RadioConnection::pingRttMeasured at socket-read time
     int           m_lastPingRtt{0};      // ms
+    double        m_smoothedPingRtt{0};  // EWMA-smoothed RTT for quality evaluation
     int           m_maxPingRtt{0};       // max RTT seen this session
     int           m_lastErrorCount{0};   // snapshot for delta
     NetState      m_netState{NetState::Off};

@@ -1276,6 +1276,7 @@ void RadioModel::startNetworkMonitor()
     m_stateCountdown = 0;
     m_lastErrorCount = 0;
     m_lastPingRtt = 0;
+    m_smoothedPingRtt = 0;
     m_maxPingRtt = 0;
     m_pingMissCount = 0;
 
@@ -1321,78 +1322,88 @@ void RadioModel::evaluateNetworkQuality()
     const bool packetLost = (currentErrors > m_lastErrorCount);
     m_lastErrorCount = currentErrors;
 
-    const int ping = m_lastPingRtt;
+    // Smooth RTT with EWMA to avoid transient spikes tanking quality
+    const int rawPing = m_lastPingRtt;
+    if (m_smoothedPingRtt <= 0)
+        m_smoothedPingRtt = rawPing;
+    else
+        m_smoothedPingRtt = PING_EWMA_ALPHA * rawPing + (1.0 - PING_EWMA_ALPHA) * m_smoothedPingRtt;
+    const int ping = static_cast<int>(m_smoothedPingRtt);
+
+    // Select thresholds based on connection type (#1809)
+    const int fairMs = isWan() ? WAN_PING_FAIR_MS : LAN_PING_FAIR_MS;
+    const int poorMs = isWan() ? WAN_PING_POOR_MS : LAN_PING_POOR_MS;
 
     // State machine from FlexLib MonitorNetworkQualityTask
     switch (m_netState) {
     case NetState::Excellent:
-        if (ping >= LAN_PING_POOR_MS)
+        if (ping >= poorMs)
             m_nextState = NetState::Poor;
-        else if (ping >= LAN_PING_FAIR_MS)
+        else if (ping >= fairMs)
             m_nextState = NetState::Good;
         else if (packetLost)
             m_nextState = NetState::VeryGood;
         break;
 
     case NetState::VeryGood:
-        if (ping >= LAN_PING_POOR_MS) {
+        if (ping >= poorMs) {
             m_nextState = NetState::Poor;
-            m_stateCountdown = 5;
-        } else if (ping >= LAN_PING_FAIR_MS || packetLost) {
+            m_stateCountdown = RECOVERY_TICKS;
+        } else if (ping >= fairMs || packetLost) {
             m_nextState = NetState::Good;
-            m_stateCountdown = 5;
+            m_stateCountdown = RECOVERY_TICKS;
         } else {
             if (m_stateCountdown-- <= 0) {
                 m_nextState = NetState::Excellent;
-                m_stateCountdown = 5;
+                m_stateCountdown = RECOVERY_TICKS;
             }
         }
         break;
 
     case NetState::Good:
-        if (ping >= LAN_PING_POOR_MS) {
+        if (ping >= poorMs) {
             m_nextState = NetState::Poor;
-            m_stateCountdown = 5;
+            m_stateCountdown = RECOVERY_TICKS;
         } else if (packetLost) {
             m_nextState = NetState::Fair;
-            m_stateCountdown = 5;
-        } else if (ping < LAN_PING_FAIR_MS) {
+            m_stateCountdown = RECOVERY_TICKS;
+        } else if (ping < fairMs) {
             if (m_stateCountdown-- <= 0) {
                 m_nextState = NetState::VeryGood;
-                m_stateCountdown = 5;
+                m_stateCountdown = RECOVERY_TICKS;
             }
         }
         break;
 
     case NetState::Fair:
-        if (ping >= LAN_PING_POOR_MS || packetLost) {
+        if (ping >= poorMs || packetLost) {
             m_nextState = NetState::Poor;
-            m_stateCountdown = 5;
+            m_stateCountdown = RECOVERY_TICKS;
         } else {
             if (m_stateCountdown-- <= 0) {
                 m_nextState = NetState::Good;
-                m_stateCountdown = 5;
+                m_stateCountdown = RECOVERY_TICKS;
             }
         }
         break;
 
     case NetState::Poor:
-        if (ping < LAN_PING_POOR_MS) {
+        if (ping < poorMs) {
             if (m_stateCountdown-- <= 0) {
                 m_nextState = NetState::Fair;
-                m_stateCountdown = 5;
+                m_stateCountdown = RECOVERY_TICKS;
             }
         }
         break;
 
     case NetState::Off:
         m_nextState = NetState::Poor;
-        m_stateCountdown = 5;
+        m_stateCountdown = RECOVERY_TICKS;
         break;
     }
 
     m_netState = m_nextState;
-    if (ping > m_maxPingRtt) m_maxPingRtt = ping;
+    if (rawPing > m_maxPingRtt) m_maxPingRtt = rawPing;
 
     static const char* names[] = {"Off", "Excellent", "Very Good", "Good", "Fair", "Poor"};
     emit networkQualityChanged(names[static_cast<int>(m_netState)], ping);
