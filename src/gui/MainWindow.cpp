@@ -5557,8 +5557,10 @@ void MainWindow::onSliceAdded(SliceModel* s)
         setActiveSlice(s->sliceId());
 
         // Detect initial band from radio's frequency
-        if (m_bandSettings.currentBand().isEmpty())
+        if (m_bandSettings.currentBand().isEmpty()) {
+            m_bandSettings.loadFromFile();   // restore saved band states from disk (#1856)
             m_bandSettings.setCurrentBand(BandSettings::bandForFrequency(s->frequency()));
+        }
 
         // Re-create audio stream if it was invalidated by a profile load.
         // Only create if PC Audio is enabled — if the user is listening
@@ -6895,9 +6897,13 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         qDebug() << "MainWindow: switching to band" << bandName
                  << "freq:" << freqMhz << "mode:" << mode;
 
-        // Radio-authoritative band change: the radio manages its own band
-        // stack (frequency, mode, filters, pan center, bandwidth, antennas).
-        // One command handles everything.
+        // Save current band state before switching (#1856)
+        const QString oldBand = m_bandSettings.currentBand();
+        if (!oldBand.isEmpty() && oldBand != bandName) {
+            m_bandSettings.saveBandState(oldBand, captureCurrentBandState());
+            m_bandSettings.saveToFile();
+        }
+
         m_bandSettings.setCurrentBand(bandName);
 
         // Translate the UI band label to the radio's band-stack key. Mapping
@@ -6947,6 +6953,16 @@ void MainWindow::wirePanadapter(PanadapterApplet* applet)
         } else {
             m_radioModel.sendCommand(
                 QString("display pan set %1 band=%2").arg(applet->panId()).arg(stackKey));
+
+            // Restore saved band state after the radio processes the band
+            // change. The radio's status updates arrive asynchronously, so
+            // defer the restore to let the new slice settle first (#1856).
+            if (m_bandSettings.hasSavedState(bandName)) {
+                QTimer::singleShot(250, this, [this, bandName]() {
+                    if (m_bandSettings.hasSavedState(bandName))
+                        restoreBandState(m_bandSettings.loadBandState(bandName));
+                });
+            }
         }
     });
 

@@ -51,9 +51,9 @@ public:
     BandSnapshot loadBandState(const QString& bandName) const;
     bool hasSavedState(const QString& bandName) const;
 
-    // Persist all in-memory state to disk (deprecated — see issue #9).
+    // Persist all in-memory band states to disk (~/.config/AetherSDR/BandSettings.xml).
     void saveToFile() const;
-    // Load from disk into memory.
+    // Load saved band states from disk into memory.
     void loadFromFile();
 
     // Current band tracking.
