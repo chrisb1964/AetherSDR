@@ -1804,6 +1804,27 @@ void DxClusterDialog::buildDisplayTab(QTabWidget* tabs)
     });
     grid->addWidget(autoModeToggle, row++, 1, Qt::AlignLeft);
 
+    // ── Passive Spots Mode (#1894) ─────────────────────────────────────
+    grid->addWidget(new QLabel("Passive Mode:"), row, 0);
+    bool passiveMode = s.value("PassiveSpotsMode", "False").toString() == "True";
+    auto* passiveToggle = new QPushButton(passiveMode ? "Enabled" : "Disabled");
+    passiveToggle->setCheckable(true);
+    passiveToggle->setChecked(passiveMode);
+    passiveToggle->setFixedWidth(80);
+    passiveToggle->setToolTip(
+        "When enabled, AetherSDR stops sending spots to the radio.\n"
+        "Use this when running an external spot manager like\n"
+        "Wave-Flex Integrator. Incoming spots from the radio\n"
+        "are still rendered.");
+    passiveToggle->setStyleSheet(
+        "QPushButton { background: #206030; color: white; border: 1px solid #305040; padding: 3px; }"
+        "QPushButton:!checked { background: #603020; }");
+    connect(passiveToggle, &QPushButton::toggled, this, [passiveToggle, save](bool on) {
+        passiveToggle->setText(on ? "Enabled" : "Disabled");
+        save("PassiveSpotsMode", on ? "True" : "False");
+    });
+    grid->addWidget(passiveToggle, row++, 1, Qt::AlignLeft);
+
     // ── Levels slider ───────────────────────────────────────────────────
     grid->addWidget(new QLabel("Levels:"), row, 0);
     auto* levelsRow = new QHBoxLayout;

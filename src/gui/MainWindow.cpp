@@ -1078,6 +1078,7 @@ MainWindow::MainWindow(QWidget* parent)
     auto queueSpotCmd = [this, isDuplicateSpot](const DxSpot& spot, const QString& source) {
         if (!m_radioModel.isConnected()) return;
         if (isDuplicateSpot(spot)) return;
+        if (AppSettings::instance().value("PassiveSpotsMode", "False").toString() == "True") return;
         QString call = QString(spot.dxCall).replace(' ', QChar(0x7f));
         QString freq = QString::number(spot.freqMhz, 'f', 6);
         QString cmd = "spot add callsign=" + call + " rx_freq=" + freq
@@ -1137,6 +1138,7 @@ MainWindow::MainWindow(QWidget* parent)
             this, [this, isDuplicateSpot](const DxSpot& spot) {
         if (!m_radioModel.isConnected()) return;
         if (isDuplicateSpot(spot)) return;
+        if (AppSettings::instance().value("PassiveSpotsMode", "False").toString() == "True") return;
 
         auto& as = AppSettings::instance();
         const QString& msg = spot.comment;
