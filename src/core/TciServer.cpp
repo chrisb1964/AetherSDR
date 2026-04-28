@@ -99,9 +99,12 @@ TciServer::TciServer(RadioModel* model, QObject* parent)
         connect(m_model, &RadioModel::statusReceived,
                 this, [this](const QString& obj, const QMap<QString,QString>& kvs) {
             if (!obj.startsWith("stream ")) return;
-            if (kvs.value("type") != "dax_rx") return;
+            const QString type = kvs.value("type");
+            if (type != "dax_rx" && type != "dax rx") return;
             quint32 streamId = obj.mid(7).toUInt(nullptr, 16);
+            // Flex v4.2.18 may use "dax_ch" instead of "dax_channel" (#2129)
             int ch = kvs.value("dax_channel").toInt();
+            if (ch == 0) ch = kvs.value("dax_ch").toInt();
             if (!streamId || ch < 1 || ch > 4) return;
             // Only register if this channel is one we requested (placeholder = 0)
             if (!m_tciDaxStreamIds.contains(ch)) return;
@@ -1359,17 +1362,52 @@ void TciServer::ensureDaxForTci()
                           << "for channel" << ch << "(#1331)";
         } else {
             m_tciDaxStreamIds[ch] = 0;
-            m_model->sendCommand(QString("stream create type=dax_rx dax_channel=%1").arg(ch));
-            qCInfo(lcCat) << "TCI: creating DAX RX stream for channel" << ch << "(#1331)";
+            // Use response callback to capture stream ID directly from the
+            // command response — robust against status format changes in
+            // Flex v4.2.18+ (#2129).  Also defer slice set until stream is
+            // confirmed, preventing race where radio ignores dax= because
+            // the stream isn't ready yet.
+            m_model->sendCmdPublic(
+                QString("stream create type=dax_rx dax_channel=%1").arg(ch),
+                [this, ch](int code, const QString& body) {
+                    if (code != 0) {
+                        qCWarning(lcCat) << "TCI: stream create failed for channel"
+                                         << ch << "code=" << code << body << "(#2129)";
+                        return;
+                    }
+                    // Response body is the hex stream ID (e.g. "0x40000001")
+                    quint32 streamId = body.trimmed().toUInt(nullptr, 16);
+                    if (!streamId) {
+                        qCWarning(lcCat) << "TCI: stream create returned unparseable ID:"
+                                         << body << "for channel" << ch << "(#2129)";
+                        return;
+                    }
+                    if (m_tciDaxStreamIds.value(ch) != 0) return; // already registered via status
+                    m_tciDaxStreamIds[ch] = streamId;
+                    if (m_model->panStream()) {
+                        m_model->panStream()->registerDaxStream(streamId, ch);
+                        qCInfo(lcCat) << "TCI: registered DAX RX stream" << Qt::hex << streamId
+                                      << "for channel" << ch << "(from response, #2129)";
+                    }
+                    // Now re-assert slice → DAX channel so radio increments dax_clients
+                    for (auto* s : m_model->slices()) {
+                        if (s->daxChannel() == ch) {
+                            m_model->sendCommand(QString("slice set %1 dax=%2")
+                                .arg(s->sliceId()).arg(ch));
+                            qCInfo(lcCat) << "TCI: re-asserting dax=" << ch
+                                          << "on slice" << s->sliceId() << "(#2129)";
+                        }
+                    }
+                });
+            qCInfo(lcCat) << "TCI: creating DAX RX stream for channel" << ch << "(#2129)";
         }
     }
 
-    // Re-assert slice → DAX channel mapping so the radio registers our
-    // stream as a client.  Without this, dax_clients stays 0 and the
-    // radio sends silence instead of demodulated audio. (#1439)
+    // Re-assert slice → DAX channel mapping for borrowed (pre-existing) streams.
+    // For newly-created streams, this is done in the response callback above. (#2129)
     for (auto* s : m_model->slices()) {
         int ch = s->daxChannel();
-        if (ch > 0 && channelsNeeded.contains(ch)) {
+        if (ch > 0 && channelsNeeded.contains(ch) && m_tciDaxBorrowedChannels.contains(ch)) {
             m_model->sendCommand(QString("slice set %1 dax=%2")
                 .arg(s->sliceId()).arg(ch));
             qCInfo(lcCat) << "TCI: re-asserting dax=" << ch

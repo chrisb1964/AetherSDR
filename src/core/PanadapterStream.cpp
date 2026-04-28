@@ -487,7 +487,38 @@ void PanadapterStream::processDatagram(const QByteArray& data)
                 dst[i * 2]     = s;
                 dst[i * 2 + 1] = s;
             }
+        } else if (pcc == PCC_OPUS) {
+            // Opus-compressed DAX audio (Flex v4.2.18+)
+            const int payloadStart = VITA49_HEADER_BYTES;
+            const int payloadBytes = data.size() - payloadStart - (hasTrailer ? 4 : 0);
+            if (payloadBytes <= 0) return;
+            if (!m_opusCodec) {
+                m_opusCodec = new OpusCodec();
+                if (!m_opusCodec->isValid()) {
+                    qCWarning(lcVita49) << "PanadapterStream: Opus codec init failed (DAX)";
+                    delete m_opusCodec;
+                    m_opusCodec = nullptr;
+                    return;
+                }
+                qCDebug(lcVita49) << "PanadapterStream: Opus decoder initialized (DAX)";
+            }
+            QByteArray opusFrame(reinterpret_cast<const char*>(raw + payloadStart), payloadBytes);
+            QByteArray int16pcm = m_opusCodec->decode(opusFrame);
+            if (int16pcm.isEmpty()) return;
+            const int numSamples = int16pcm.size() / static_cast<int>(sizeof(qint16));
+            const auto* src16 = reinterpret_cast<const qint16*>(int16pcm.constData());
+            pcm.resize(numSamples * 2 * static_cast<int>(sizeof(float)));
+            auto* dst = reinterpret_cast<float*>(pcm.data());
+            for (int i = 0; i < numSamples; ++i) {
+                const float s = src16[i] / 32768.0f;
+                dst[i * 2]     = s;
+                dst[i * 2 + 1] = s;
+            }
         } else {
+            qCWarning(lcVita49) << "PanadapterStream: DAX stream"
+                                << Qt::hex << streamId << "channel" << channel
+                                << "received unhandled PCC 0x" + QString::number(pcc, 16)
+                                << "- dropping packet (#2129)";
             return;
         }
         emit daxAudioReady(channel, pcm);
