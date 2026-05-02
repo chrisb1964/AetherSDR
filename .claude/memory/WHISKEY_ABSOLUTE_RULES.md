@@ -82,6 +82,15 @@ OPNsense and CRS309: no changes without a helpdesk ticket and Chris's explicit s
 
 ---
 
+## RULE 10 — ALWAYS READ BEFORE EDIT
+
+Always use the Read tool on a file before using the Edit tool on it — even if you just grepped it.
+The Edit tool will refuse to write and show an error if Read was not called first in the session.
+This is not a real error — it is a safety guard — but it is confusing and off-putting to the user.
+Avoid it by reading first, every time, no exceptions.
+
+---
+
 ## THE BOTTOM LINE
 
 This is a real GitHub project with real contributors and real users.
